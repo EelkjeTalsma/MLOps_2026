@@ -1,11 +1,10 @@
 import time
+import os
 from typing import Any, Dict, Tuple
-
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-
 from ..utils import ExperimentTracker, setup_logger
 
 
@@ -24,6 +23,7 @@ class Trainer:
 
         # TODO: Define Loss Function (Criterion)
         self.criterion = nn.CrossEntropyLoss()
+        self.best_val_loss = float("inf")
 
         # TODO: Initialize ExperimentTracker
         self.tracker = ExperimentTracker(experiment_name=config.get("experiment_name", "mlops_experiment"), config=config)
@@ -33,15 +33,13 @@ class Trainer:
         self.val_losses = []
 
     def train_epoch(self, dataloader: DataLoader, epoch_idx: int) -> Tuple[float, float, float]:
-        self.model.train()
-        
         # TODO: Implement Training Loop
         # 1. Iterate over dataloader
         # 2. Move data to device
         # 3. Forward pass, Calculate Loss
         # 4. Backward pass, Optimizer step
         # 5. Track metrics (Loss, Accuracy, F1)
-        
+
         self.model.train()
         running_loss = 0.0
         correct = 0
@@ -56,6 +54,15 @@ class Trainer:
 
             self.optimizer.zero_grad()
             loss.backward()
+
+            if epoch_idx < 2:
+                grad_norm = 0.0
+                for p in self.model.parameters():
+                    if p.grad is not None:
+                        grad_norm += p.grad.norm(2).item() ** 2
+                grad_norm **= 0.5
+                print(f"Epoch {epoch_idx} | Grad norm: {grad_norm:.4f}")
+
             self.optimizer.step()
 
             running_loss += loss.item() * images.size(0)
@@ -65,13 +72,12 @@ class Trainer:
 
         epoch_loss = running_loss / total
         epoch_acc = correct / total
+        epoch_f1 = epoch_acc
 
         self.train_losses.append(epoch_loss)
-        return epoch_loss, epoch_acc, 0.0
+        return epoch_loss, epoch_acc, epoch_f1
 
     def validate(self, dataloader: DataLoader, epoch_idx: int) -> Tuple[float, float, float]:
-        self.model.eval()
-        
         # TODO: Implement Validation Loop
         # Remember: No gradients needed here
 
@@ -95,43 +101,56 @@ class Trainer:
 
         epoch_loss = running_loss / total
         epoch_acc = correct / total
+        epoch_f1 = epoch_acc
+
         self.val_losses.append(epoch_loss)
-        return epoch_loss, epoch_acc, 0.0
+        return epoch_loss, epoch_acc, epoch_f1
 
     def save_checkpoint(self, epoch: int, val_loss: float) -> None:
         # TODO: Save model state, optimizer state, and config
         save_dir = self.config.get("save_dir", "checkpoints")
         os.makedirs(save_dir, exist_ok=True)
 
-        checkpoint_path = os.path.join(save_dir, f"model_epoch{epoch}_valloss{val_loss:.4f}.pt")
+        path = os.path.join(save_dir, "best_model.pt")
         torch.save({
             "epoch": epoch,
             "model_state_dict": self.model.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
             "config": self.config,
-        }, checkpoint_path)
-        print(f"Checkpoint saved to {checkpoint_path}")
+        }, path)
+        print(f"Checkpoint saved to (val_loss={val_loss:.4f})")
 
     def fit(self, train_loader: DataLoader, val_loader: DataLoader) -> None:
         epochs = self.config["training"]["epochs"]
-        
-        print(f"Starting training for {epochs} epochs...")
-        
-        for epoch in range(1, epochs + 1):
-            train_loss, train_acc, _ = self.train_epoch(train_loader, epoch)
-            val_loss, val_acc, _ = self.validate(val_loader, epoch)
 
-            self.tracker.log_epoch(
-                epoch=epoch,
-                train_loss=train_loss,
-                train_acc=train_acc,
-                val_loss=val_loss,
-                val_acc=val_acc
-            )
+        print(f"Starting training for {epochs} epochs...")
+
+        try:
+            for epoch in range(1, epochs + 1):
+                train_loss, train_acc, train_f1 = self.train_epoch(
+                    train_loader, epoch
+                )
+                val_loss, val_acc, val_f1 = self.validate(val_loader, epoch)
+
+                self.tracker.log_metrics(
+                    epoch=epoch,
+                     metrics={
+                         "train_loss": train_loss,
+                         "train_acc": train_acc,
+                         "train_f1": train_f1,
+                         "val_loss": val_loss,
+                         "val_acc": val_acc,
+                         "val_f1": val_f1,
+                    }
+                )
 
             print(f"Epoch {epoch}: Train Loss={train_loss:.4f}, Val Loss={val_loss:.4f}, "
                   f"Train Acc={train_acc:.4f}, Val Acc={val_acc:.4f}")
 
-            self.save_checkpoint(epoch, val_loss)
+            if val_loss < self.best_val_loss:
+                    self.best_val_loss = val_loss
+                    self.save_checkpoint(epoch, val_loss)
 
-        print("Training complete.")
+        finally:
+            self.tracker.close()
+            print("Training complete.")

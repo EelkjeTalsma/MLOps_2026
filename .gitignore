@@ -1,7 +1,57 @@
+####################################
+# Python
+####################################
 __pycache__/
-*.pyc
-experiments/logs/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+####################################
+# Data & datasets
+####################################
+*.h5
+*.hdf5
+surfdrive/
+data/
+
+####################################
+# Model outputs & experiments
+####################################
+checkpoints/
+*.pt
+*.pth
+
 experiments/results/
-.env
+experiments/experiments/results/
+experiments/logs/
+
+# TensorBoard
+tb_logs/
+events.out.tfevents.*
+
+####################################
+# HPC / SLURM
+####################################
+*.out
+*.err
+
+####################################
+# Editors / backups
+####################################
+*~
+*.save
+*.save.*
+*.swp
+*.swo
+
+####################################
+# OS files
+####################################
 .DS_Store
-*.egg-info/
+Thumbs.db
